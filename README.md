@@ -29,7 +29,9 @@ MiniCore ブートローダを使用し
 ![表](https://github.com/Gazelle8087/Si4730-AM-FM-tuner/blob/main/Si4730-M02_Tuner_PCB.JPG)
 
 ## 回路の説明
-![表](https://github.com/Gazelle8087/Si4730-AM-FM-tuner/blob/main/Si4730-M02_Tuner_sch.pdf)
+
+リポジトリ内 Si4730-M02_Tuner_sch.pdf ご参照ください。  
+モジュールの基板を解析した結果は Si4730-M02_sch.pdf をご参照ください。  
 
 チューナーモジュールを制御するマイコン  
 赤外線リモコン受信、I2C接続16桁×2行の液晶表示  

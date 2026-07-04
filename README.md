@@ -25,7 +25,6 @@ MiniCore ブートローダを使用し
 
 リポジトリ内 SI4730_IR.ino をご参照ください。  
 シングルソースです。  
-(2026/6/28時点 公開準備中です)  
 
 ## プリント基板
 ![表](https://github.com/Gazelle8087/Si4730-AM-FM-tuner/blob/main/Si4730-M02_Tuner_PCB.JPG)

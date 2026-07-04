@@ -29,7 +29,7 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 /*
 変更履歴
-2026 July 4 初回公開
+2026 July 4 Ver. 1.00 初回公開
 */
 
 #include <TinyIRReceiver.hpp>
@@ -1631,7 +1631,7 @@ void setup(){
 static inline void save_and_halt() __attribute__((always_inline));
 void save_and_halt() {
 
-//  PORTC &= 0b11110111;                 // オシロ観察用 本番では消す
+  PORTC &= 0b11110111;                 // オシロ観察用 本番では消す
   TWCR = 0;                            // I2C停止
   PORTC &= ~((1 << PC4) | (1 << PC5)); // SDA, SCLを強制LOW
   CLKPR = 0b10000000;                  // クロック落とした方がEEP処理終わった時の
@@ -1639,17 +1639,17 @@ void save_and_halt() {
   //PRR   = 0b11111111;                  // 全ペリフェラル停止
 
 // EEPROMへの保存処理                   // UI開発中は書き込みしない本番では戻す
-  EEPROM.put(offsetof(Eeprom_Memory_Map, Tuner_config), Tuner_config);
-//  PORTC |= 0b00001000; 		       // オシロ観察用 本番では消す
-  EEPROM.put(offsetof(Eeprom_Memory_Map, last_station_am), AM_config);
-//  PORTC &= 0b11110111;                 // オシロ観察用 本番では消す
-  EEPROM.put(offsetof(Eeprom_Memory_Map, last_station_fm), FM_config);
+//  EEPROM.put(offsetof(Eeprom_Memory_Map, Tuner_config), Tuner_config);
+  PORTC |= 0b00001000; 		       // オシロ観察用 本番では消す
+//  EEPROM.put(offsetof(Eeprom_Memory_Map, last_station_am), AM_config);
+  PORTC &= 0b11110111;                 // オシロ観察用 本番では消す
+//  EEPROM.put(offsetof(Eeprom_Memory_Map, last_station_fm), FM_config);
 
   // 省電力設定
   wdt_disable();     // ウォッチドッグ停止
   PRR = 0b11111111;  // 全ペリフェラル停止
 
-//  PORTC |= 0b00001000; // オシロ観察用 本番では消す
+  PORTC |= 0b00001000; // オシロ観察用 本番では消す
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sleep_enable();
   cli();             // 割り込みを完全禁止

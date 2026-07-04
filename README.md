@@ -28,7 +28,7 @@ MiniCore ブートローダを使用し
 
 ## プリント基板
 リポジトリにJLCPCBに発注した設計データ Si4730_tuner_proto2_20260628.zip を置く予定です。  
-（本機版に部品実装し正常動作確認できた時点で公開します。  
+（本基板に部品実装し正常動作確認できた時点で公開します。）  
 
 ![表](https://github.com/Gazelle8087/Si4730-AM-FM-tuner/blob/main/Si4730-M02_Tuner_PCB.JPG)
 

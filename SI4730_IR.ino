@@ -30,6 +30,7 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 /*
 変更履歴
 2026 July 4 Ver. 1.00 初回公開
+2026 July 9 Ver. 1.01 ラストステーションメモリ保存有効化
 */
 
 #include <TinyIRReceiver.hpp>
@@ -250,7 +251,7 @@ static_assert(sizeof(Eeprom_Memory_Map) <= 1024, "Shortage of EEPROM");
 // 引数 uint8_t  IR_code  IRで受信したコマンド（リモートコード）
 // 戻り uint8_t  key_code 機能番号（対象外または未登録のボタンは99）
 
-uint8_t translateIR(uint16_t IR_address, uint8_t IR_command) {
+uint8_t translateIR(uint16_t IR_address, uint16_t IR_command) {
 
   if (IR_address != MAKER_ADDRESS) {  // 対象外のメーカーコードなら、99を返して終了
     return 99;
@@ -1639,11 +1640,11 @@ void save_and_halt() {
   //PRR   = 0b11111111;                  // 全ペリフェラル停止
 
 // EEPROMへの保存処理                   // UI開発中は書き込みしない本番では戻す
-//  EEPROM.put(offsetof(Eeprom_Memory_Map, Tuner_config), Tuner_config);
+  EEPROM.put(offsetof(Eeprom_Memory_Map, Tuner_config), Tuner_config);
   PORTC |= 0b00001000; 		       // オシロ観察用 本番では消す
-//  EEPROM.put(offsetof(Eeprom_Memory_Map, last_station_am), AM_config);
+  EEPROM.put(offsetof(Eeprom_Memory_Map, last_station_am), AM_config);
   PORTC &= 0b11110111;                 // オシロ観察用 本番では消す
-//  EEPROM.put(offsetof(Eeprom_Memory_Map, last_station_fm), FM_config);
+  EEPROM.put(offsetof(Eeprom_Memory_Map, last_station_fm), FM_config);
 
   // 省電力設定
   wdt_disable();     // ウォッチドッグ停止
@@ -1704,6 +1705,7 @@ void loop(){
       default: 
       if(key_code <= PRESET_CH_MAX){          // [CHボタン] key_code = CH番号
         if(!tuner_preset_call(PRESET_CH_MAX * (Tuner_config.bank - 1) + key_code -1)){
+          start_time = millis();
           LCD_empty();
         }
       }

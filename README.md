@@ -14,8 +14,7 @@ https://eleshop.jp/shop/g/gQ1D411/
 
 ## 実装例
 
-![全体](https://github.com/Gazelle8087/Si4730-AM-FM-tuner/blob/main/Si4730-M02_Tuner.JPG)
-
+![sample](https://github.com/Gazelle8087/Si4730-AM-FM-tuner/blob/main/Si4730-M02_Tuner.JPG)
 とりあえずの音出しに必要な部品を組付けた状態です  
 現時点で基板上のパターン修正が必要な箇所は有りません  
 

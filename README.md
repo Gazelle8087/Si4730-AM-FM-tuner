@@ -12,11 +12,14 @@ Si4730-D60 搭載のチューナーモジュールを
 共立エレショップで扱われている商品に関しては以下リンク先ご参照ください  
 https://eleshop.jp/shop/g/gQ1D411/
 
-## 実装例
+## 実装例  
 
 ![sample](https://github.com/Gazelle8087/Si4730-AM-FM-tuner/blob/main/Si4730-M02_Tuner.JPG)
 とりあえずの音出しに必要な部品を組付けた状態です  
 現時点で基板上のパターン修正が必要な箇所は有りません  
+
+![smallLCD](https://github.com/Gazelle8087/Si4730-AM-FM-tuner/blob/main/Si4730-M02_Tuner_smallLCD.JPG)
+超小型LCDのサイズ感です  
 
 ## ビルド環境
 

@@ -124,7 +124,7 @@ TX-8050はプリセットメモリ1～40chで、ダイレクト呼び出しの�
 
 ## チューナーモジュール Si4730-M02 について
 
-![写真](https://github.com/Gazelle8087/Si4730-AM-FM-tuner/blob/main/Si4730-M02_inside.JPG)
+![内部](https://github.com/Gazelle8087/Si4730-AM-FM-tuner/blob/main/Si4730-M02_inside.JPG)  
 
 この品はオーディオメーカーのAVアンプのチューナーモジュールらしく  
 しっかりとしたシールドに納められ、FM外部アンテナ接続用のF型接栓  

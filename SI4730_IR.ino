@@ -29,8 +29,9 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 /*
 変更履歴
-2026 July 4 Ver. 1.00 初回公開
-2026 July 9 Ver. 1.01 ラストステーションメモリ保存有効化
+2026 July 4  Ver. 1.00 初回公開
+2026 July 9  Ver. 1.01 ラストステーションメモリ保存有効化
+2026 July 18 Ver. 1.02 AMノイズ抑制クロックゆらぎ導入 
 */
 
 #include <TinyIRReceiver.hpp>
@@ -55,6 +56,9 @@ constexpr auto SPI_MISO     = 12; // Atmega328P 18ピン SPIのMISO（現状未�
 constexpr auto SPI_SCK      = 13; // Atmega328P 19ピン SPIのSCK（現状未使用）
 constexpr auto XTAL1        = 20; // Atmega328P  9ピン 現状未使用
 constexpr auto XTAL2        = 21; // Atmega328P 10ピン 現状未使用
+
+constexpr auto RND_NUM1     =  3; // ノイズ抑制ランダムクロックゆらぎ下限
+constexpr auto RND_NUM2     =  5; // ノイズ抑制ランダムクロックゆらぎ上限
 
 constexpr auto LCD_ADRS = 0x3E;   // LCD I2C address
 
@@ -162,6 +166,7 @@ uint8_t resp9 = 0;
 bool af_mute     = false;  //音声ミュートフラグ
 bool fine_tuning = false;  //微調整フラグ
 bool ch_empty    = false;  //選択chが空のときセット(一時的なEMPTY表示用）
+bool rsq_switch  = true;   //RSQ 定期更新
 
 // 帯域表構造体の定義
 struct widthconfig {
@@ -323,134 +328,108 @@ uint8_t translateIR_N(uint16_t IR_address, uint8_t IR_command){
   }
   return key_code;
 }
-// ============ Si4730 双方向3線シリアル入出力 ========================
-// ------------ 送信 -------------------------------------------------
+// ============ Si4730 双方向3線シリアル入出力 =======================
+// ------------ SCLK 駆動 -------------------------------------------
+void si4730_sclk() {
+  PORTB |= (1 << SCLK);
+  delayMicroseconds(random(RND_NUM1,RND_NUM2));
+  PORTB &= ~(1 << SCLK);
+  delayMicroseconds(random(RND_NUM1,RND_NUM2));
+}
+// ------------ 送信 ------------------------------------------------
 void si4730_write16(uint8_t addr, uint16_t arg) {
 
-  // 開始 (SENBをLOWに)
-  PORTB &= ~(1 << SCLK);
-  pinMode(SDIO_PIN, OUTPUT);
+  pinMode(SDIO_PIN, OUTPUT);    // 開始 (SENBをLOWに)
   PORTD &= ~(1 << SENB_PIN);
 
-  // 上位3ビット
-  for (int i = 3; i > 0; i--) {
+  for (int i = 3; i > 0; i--) {  // 上位3ビット
     if (addr & 0x80){
       PORTD |= (1 << SDIO_PIN);
     } else {
       PORTD &= ~(1 << SDIO_PIN);
     }
     addr = addr << 1;
-    PORTB |= (1 << SCLK);
-    PORTB &= ~(1 << SCLK);
+    si4730_sclk();
   }
 
-  // 4ビット目は書き込みフラグ 0
-  PORTD &= ~(1 << SDIO_PIN);
-  PORTB |= (1 << SCLK);
-  PORTB &= ~(1 << SCLK);
+  PORTD &= ~(1 << SDIO_PIN);  // 4ビット目は書き込みフラグ 0
+  si4730_sclk();
 
-  //  残りのアドレス5ビット
-  for (int i = 4; i >= 0; i--) {
+  for (int i = 4; i >= 0; i--) {  //  残りのアドレス5ビット
     if (addr & 0x80){
       PORTD |= (1 << SDIO_PIN);
     } else {
       PORTD &= ~(1 << SDIO_PIN);
     }
     addr = addr << 1;
-    PORTB |= (1 << SCLK);
-    PORTB &= ~(1 << SCLK);
+    si4730_sclk();
   }
 
-  // arg 16ビット
-  for (int i = 15; i >= 0; i--) {
+  for (int i = 15; i >= 0; i--) {  // arg 16ビット
     if (arg & 0x8000){
       PORTD |= (1 << SDIO_PIN);
     } else {
       PORTD &= ~(1 << SDIO_PIN);
     }
     arg = arg << 1;
-    PORTB |= (1 << SCLK);
-    PORTB &= ~(1 << SCLK);
+    si4730_sclk();
   }
 
-  // 終了の準備 (SENBを先にHIGHにする)
-  PORTD |= (1 << SENB_PIN);
-
-  // SENBがHIGHの状態で、最後に1回SCLKパルスを入れる
-  PORTB |= (1 << SCLK);
-  PORTB &= ~(1 << SCLK);
-
+  PORTD |= (1 << SENB_PIN);   // 終了の準備 (SENBを先にHIGHにする)
+  si4730_sclk();              // SENBがHIGHの状態で、最後に1回SCLKパルスを入れる
   pinMode(SDIO_PIN, INPUT);
 }
 // ------------ 受信 8bit × 2 ----------------------------------------
 uint8_t si4730_read(uint8_t addr, uint8_t &resp1, uint8_t &resp2) {
 
-  // 開始 (SENBをLOWに)
-  pinMode(SDIO_PIN, OUTPUT);
-  PORTB &= ~(1 << SCLK);
+  pinMode(SDIO_PIN, OUTPUT);  // 開始 (SENBをLOWに)
   PORTD &= ~(1 << SENB_PIN);
 
-  // 上位3ビット
-  for (int i = 3; i > 0; i--) {
+  for (int i = 3; i > 0; i--) {  // 上位3ビット
     if (addr & 0x80){
       PORTD |= (1 << SDIO_PIN);
     } else {
       PORTD &= ~(1 << SDIO_PIN);
     }
     addr = addr << 1;
-    PORTB |= (1 << SCLK);
-    PORTB &= ~(1 << SCLK);
+    si4730_sclk();
   }
 
-  // 4ビット目は読み込みフラグ 1
-  PORTD |= (1 << SDIO_PIN);
-  PORTB |= (1 << SCLK);
-  PORTB &= ~(1 << SCLK);
+  PORTD |= (1 << SDIO_PIN);  // 4ビット目は読み込みフラグ 1
+  si4730_sclk();
 
-  // 残りのアドレス5ビット
-  for (int i = 4; i >= 0; i--) {
+  for (int i = 4; i >= 0; i--) {  // 残りのアドレス5ビット
     if (addr & 0x80){
       PORTD |= (1 << SDIO_PIN);
     } else {
       PORTD &= ~(1 << SDIO_PIN);
     }
     addr = addr << 1;
-    PORTB |= (1 << SCLK);
-    PORTB &= ~(1 << SCLK);
+    si4730_sclk();
   }
 
-  // 入力に切り替え
-    pinMode(SDIO_PIN, INPUT);
+  pinMode(SDIO_PIN, INPUT);  // 入力に切り替え
 
-  // resp1 8ビット
-  resp1 = 0;
+  resp1 = 0;  // resp1 8ビット
   for (int i = 7; i >= 0; i--) {
-    PORTB |= (1 << SCLK);
-    PORTB &= ~(1 << SCLK);
+    si4730_sclk();
     resp1 = resp1 << 1;
     if ((PIND & (1 << SDIO_PIN))) {  // ここ早すぎると取りこぼす
       resp1++;                       // SCLK 下げを後にするとNG
     }
   }
 
-  // resp2 8ビット
-  resp2 = 0;
+  resp2 = 0;  // resp2 8ビット
   for (int i = 7; i >= 0; i--) {
-    PORTB |= (1 << SCLK);
-    PORTB &= ~(1 << SCLK);
+    si4730_sclk();
     resp2 = resp2 << 1;
     if ((PIND & (1 << SDIO_PIN))) {
       resp2++;
     }
   }
 
-  // 終了の準備 (SENBを先にHIGHにする)
-  PORTD |= (1 << SENB_PIN);
-
-  // SENBがHIGHの状態で、最後に1回SCLKパルスを入れる
-  PORTB |= (1 << SCLK);
-  PORTB &= ~(1 << SCLK);
-
+  PORTD |= (1 << SENB_PIN);   // 終了の準備 (SENBを先にHIGHにする)
+  si4730_sclk();              // SENBがHIGHの状態で、最後に1回SCLKパルスを入れる
   return resp1;
 }
 // ------------ 受信 16bit ----------------------------------------
@@ -458,61 +437,44 @@ uint16_t si4730_read16(uint8_t addr) {
 
   uint16_t resp = 0;
 
-  // 開始 (SENBをLOWに)
-  pinMode(SDIO_PIN, OUTPUT);
-  PORTB &= ~(1 << SCLK);
+  pinMode(SDIO_PIN, OUTPUT);  // 開始 (SENBをLOWに)
   PORTD &= ~(1 << SENB_PIN);
 
-  // 上位3ビット
-  for (int i = 3; i > 0; i--) {
+  for (int i = 3; i > 0; i--) {  // 上位3ビット
     if (addr & 0x80){
       PORTD |= (1 << SDIO_PIN);
     } else {
       PORTD &= ~(1 << SDIO_PIN);
     }
     addr = addr << 1;
-    PORTB |= (1 << SCLK);
-    PORTB &= ~(1 << SCLK);
+    si4730_sclk();
   }
 
-  // 4ビット目は読み込みフラグ 1
-  PORTD |= (1 << SDIO_PIN);
-  PORTB |= (1 << SCLK);
-  PORTB &= ~(1 << SCLK);
+  PORTD |= (1 << SDIO_PIN);  // 4ビット目は読み込みフラグ 1
+  si4730_sclk();
 
-  // 残りのアドレス5ビット
-  for (int i = 4; i >= 0; i--) {
+  for (int i = 4; i >= 0; i--) {  // 残りのアドレス5ビット
     if (addr & 0x80){
       PORTD |= (1 << SDIO_PIN);
     } else {
       PORTD &= ~(1 << SDIO_PIN);
     }
     addr = addr << 1;
-    PORTB |= (1 << SCLK);
-    PORTB &= ~(1 << SCLK);
+    si4730_sclk();
   }
 
-  // sdioを入力に切り替え
-    pinMode(SDIO_PIN, INPUT);
+  pinMode(SDIO_PIN, INPUT);  // sdioを入力に切り替え
 
-  // resp 16ット
-
-  for (int i = 15; i >= 0; i--) {
-    PORTB |= (1 << SCLK);
-    PORTB &= ~(1 << SCLK);
+  for (int i = 15; i >= 0; i--) {  // resp 16ット
+    si4730_sclk();
     resp = resp <<1;
     if ((PIND & (1 << SDIO_PIN))) {
       resp++;
     }
   }
 
-  // 終了の準備 (SENBを先にHIGHにする)
-  PORTD |= (1 << SENB_PIN);
-
-  // SENBがHIGHの状態で、最後に1回SCLKパルスを入れる
-  PORTB |= (1 << SCLK);
-  PORTB &= ~(1 << SCLK);
-
+  PORTD |= (1 << SENB_PIN);  // 終了の準備 (SENBを先にHIGHにする)
+  si4730_sclk();  // SENBがHIGHの状態で、最後に1回SCLKパルスを入れる
   return resp;
 }
 // ============ Si4730 双方向3線シリアル入出力 ここまで================
@@ -789,7 +751,7 @@ void LCD_put_AM_direct(){
   LCD_write_data(0x5f);
   LCD_write_data(0x5f);
 }
-// ----- AM direct 枠表示 -----
+// ----- FM direct 枠表示 -----
 void LCD_put_FM_direct(){
   LCD_write_command(0x84);
   LCD_write_data(0x5f);
@@ -797,6 +759,24 @@ void LCD_put_FM_direct(){
   LCD_write_data(0x2e);
   LCD_write_data(0x5f);
   LCD_write_data(0x20);
+}
+// ----- RSQ 空白 ----
+void LCD_rsq_clear(){
+  LCD_write_command(0xC1);
+  LCD_write_data(0x20);
+  LCD_write_data(0x20);
+  LCD_write_command(0xC5);
+  LCD_write_data(0x20);
+  LCD_write_data(0x20);
+  LCD_write_command(0xC9);
+  LCD_write_data(0x20);
+  LCD_write_data(0x20);
+  if (Tuner_config.band == FM){
+    LCD_write_command(0xCd);
+    LCD_write_data(0x20);
+    LCD_write_data(0x20);
+    LCD_write_data(0x20);
+  }
 }
 //----------- LCD関連ここまで ---------------------------------------
 // ============ Si4730 基本機能関数 ここから==========================
@@ -923,12 +903,13 @@ void si4730_power_up_fm(){
 // ----- AM 周波数指定チューニング -----------------------------------
 // この関数自体は AM(MW)/SW/LW 関係なく使えるつもりだったがチップ非対応
 void si4730_tune_freq_am(uint16_t am_freq, uint16_t cap){
-  if(am_freq > FREQ_MAX_MW){
-    cap = 1;                   // SW受信時は CAP=1を指定
-  }
+//  if(am_freq > FREQ_MAX_MW){
+//    cap = 1;                   // SW受信時は CAP=1を指定
+//  }
 // チューニングの直前に、SW制限を外す隠しパラメータを叩いたが効果なかった
 //si4730_set_property(0x3103, 0x7800); // AVC MAX GAINをSW用に解放
 //si4730_set_property(0x3102, 0x0001); // 入力をFMピン(SW対応)に強制切り替え
+  rsq_switch = true;
   si4730_write16(ARG23, am_freq);
   si4730_write16(ARG45, cap);
   si4730_write16(CMD, AM_TUNE_FREQ);
@@ -945,6 +926,7 @@ void si4730_tune_freq_am(uint16_t am_freq, uint16_t cap){
 }
 // ----- FM 周波数指定チューニング ------------------------------------
 void si4730_tune_freq_fm(uint16_t fm_freq){
+  rsq_switch = true;
   si4730_write16(ARG23, fm_freq);
   si4730_write16(ARG45, 0);
   si4730_write16(CMD, FM_TUNE_FREQ);
@@ -1432,6 +1414,15 @@ void tuner_force_mono(){
     }
   }
 }
+//----- RSQ 更新 ON/OFF
+void tuner_rsq_switch(){
+  if(rsq_switch) {
+    rsq_switch = false;
+    LCD_rsq_clear();
+  } else {
+    rsq_switch = true;
+  }
+}
 //==========  RSQ 表示 ====================================
 // ----- LOOP()から定期的に呼ばれる
 // ----- AM RSQ 表示 -----
@@ -1440,15 +1431,17 @@ void tuner_rsq_am(){
     LCD_put_AM_freq(AM_config.frequency);
    ch_empty = false;
   }
-  si4730_write16(CMD, AM_RSQ_STATUS);
-  while ((si4730_read(STATUS,status,resp1) & 0x80) == 0);
-  si4730_read(RESP45,resp4,resp5);
-  LCD_put_RSSI(resp4);
-  LCD_put_SNR(resp5);
-  si4730_write16(CMD, AM_AGC_STATUS);
-  while ((si4730_read(STATUS,status,resp1) & 0x80) == 0);
-  si4730_read(RESP23,resp2,resp3);
-  LCD_put_ATT(resp2);
+  if(rsq_switch){
+    si4730_write16(CMD, AM_RSQ_STATUS);
+    while ((si4730_read(STATUS,status,resp1) & 0x80) == 0);
+    si4730_read(RESP45,resp4,resp5);
+    LCD_put_RSSI(resp4);
+    LCD_put_SNR(resp5);
+    si4730_write16(CMD, AM_AGC_STATUS);
+    while ((si4730_read(STATUS,status,resp1) & 0x80) == 0);
+    si4730_read(RESP23,resp2,resp3);
+    LCD_put_ATT(resp2);
+  }
 }
 //----- FM RSQ 表示
 void tuner_rsq_fm(){
@@ -1456,25 +1449,27 @@ void tuner_rsq_fm(){
     LCD_put_FM_freq(FM_config.frequency);
    ch_empty = false;
   }
-  si4730_write16(CMD, FM_RSQ_STATUS);
-  while ((si4730_read(STATUS,status,resp1) & 0x80) == 0);
-  si4730_read(RESP23,resp2,resp3);
-  si4730_read(RESP45,resp4,resp5);
-  si4730_read(RESP67,resp6,resp7);
-  LCD_put_RSSI(resp4);
-  LCD_put_SNR(resp5);
-  LCD_put_MLT(resp6);
-  if (resp3 & 0x80){
-    if (FM_config.stereo){
-      LCD_put_BLEND(resp3 & 0x7f);
+  if(rsq_switch){
+    si4730_write16(CMD, FM_RSQ_STATUS);
+    while ((si4730_read(STATUS,status,resp1) & 0x80) == 0);
+    si4730_read(RESP23,resp2,resp3);
+    si4730_read(RESP45,resp4,resp5);
+    si4730_read(RESP67,resp6,resp7);
+    LCD_put_RSSI(resp4);
+    LCD_put_SNR(resp5);
+    LCD_put_MLT(resp6);
+    if (resp3 & 0x80){
+      if (FM_config.stereo){
+        LCD_put_BLEND(resp3 & 0x7f);
+      } else {
+        LCD_put_force_MONO();
+      }
     } else {
-      LCD_put_force_MONO();
-    }
-  } else {
-    if (FM_config.stereo){
-      LCD_put_MONO();
-    } else {
-      LCD_put_force_MONO2();
+      if (FM_config.stereo){
+        LCD_put_MONO();
+      } else {
+        LCD_put_force_MONO2();
+      }
     }
   }
 }
@@ -1508,11 +1503,11 @@ void setup(){
   PORTD &= ~(1 << RSTB_PIN);  // RESET
 
   pinMode(SENB_PIN, OUTPUT);
-  pinMode(SDIO_PIN, OUTPUT);
-  pinMode(SCLK_PIN, OUTPUT);
+  pinMode(SDIO_PIN, INPUT);
   pinMode(SCLK_PIN, OUTPUT);
   pinMode(HARD_MUTE, OUTPUT);
 
+  PORTB &= ~(1 << SCLK);
   PORTD |= (1 << RSTB_PIN);  // RESET RELEASE
 
   pinMode(GPIO2_PIN, INPUT_PULLUP);
@@ -1547,37 +1542,40 @@ void setup(){
 // EEP ラストステーションメモリ 初期化チェック
 // AM保存周波数チェック NGならソース初期値のまま
   EEPROM.get((offsetof(Eeprom_Memory_Map, last_station_am)), EEP_Ch_config);
-//  if(EEP_Ch_config.frequency <= FREQ_MAX_AM && EEP_Ch_config.frequency >= FREQ_MIN_AM){
   if((EEP_Ch_config.band == AM) && (EEP_Ch_config.frequency <= FREQ_MAX_AM && EEP_Ch_config.frequency >= FREQ_MIN_AM)){
     AM_config = EEP_Ch_config;
   }
 
 // FM保存周波数チェック NGならソース初期値のまま
   EEPROM.get((offsetof(Eeprom_Memory_Map, last_station_fm)), EEP_Ch_config);
-//  if(EEP_Ch_config.frequency <= FREQ_MAX_FM && EEP_Ch_config.frequency >= FREQ_MIN_FM){
   if((EEP_Ch_config.band == FM) && (EEP_Ch_config.frequency <= FREQ_MAX_FM && EEP_Ch_config.frequency >= FREQ_MIN_FM)){
     FM_config = EEP_Ch_config;
   }
+
 // 音量チェック NGなら最大値を設定
   EEPROM.get((offsetof(Eeprom_Memory_Map, Tuner_config)), EEP_Sys_config);
   if(EEP_Sys_config.vol > MAX_VOL){
     EEP_Sys_config.vol = MAX_VOL;
   }
+
 // バンク番号チェック NGなら1にする
   if(EEP_Sys_config.bank == 0 || EEP_Sys_config.bank > PRESET_BANK_MAX){
     EEP_Sys_config.bank = 1;
   }
+
 // AMプリセットchチェック NGなら0にする
   if(EEP_Sys_config.preset_ch_am >= PRESET_BANK_MAX * PRESET_CH_MAX){
     EEP_Sys_config.preset_ch_am = 0;
     AM_config.preset = false;
   }
+
 // FMプリセットchチェック NGなら0にする
   if(EEP_Sys_config.preset_ch_fm >= PRESET_BANK_MAX * PRESET_CH_MAX){
     EEP_Sys_config.preset_ch_fm = 0;
     FM_config.preset = false;
   }
   Tuner_config = EEP_Sys_config;
+
 // EEP 読み出し・チェック、初期化おわり
 
   delay(1000);
@@ -1699,7 +1697,7 @@ void loop(){
       case 213: tuner_preset_write(); break; // [番組表]
       case 214: tuner_force_mono();   break; // [ 青 ]
       case 215: break;                       // [ 赤 ]
-      case 216: break;                       // [ 緑 ]
+      case 216: tuner_rsq_switch();   break; // [ 緑 ]
       case 217: test_last_save();     break; // [ 黄 ]
 
       default: 
